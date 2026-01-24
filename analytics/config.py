@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     batch_size: int = Field(100, description="Number of events to process before calculating indicators")
     enable_postgres_storage: bool = Field(True, description="Store indicators in PostgreSQL")
 
+    # Redis configuration (for checking data freshness)
+    redis_host: str = Field("localhost", description="Redis host")
+    redis_port: int = Field(6379, description="Redis port")
+    redis_password: str = Field("", description="Redis password (optional)")
+    redis_db: int = Field(0, description="Redis database number")
+    check_data_freshness: bool = Field(True, description="Check data freshness before calculating")
+
     @field_validator('sma_periods', mode='before')
     @classmethod
     def parse_sma_periods(cls, v):

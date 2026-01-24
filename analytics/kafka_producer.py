@@ -59,6 +59,7 @@ class IndicatorProducer:
         symbol: str,
         timestamp: datetime,
         indicators: Dict[str, Any],
+        data_quality: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """
         Publish an indicator event to Kafka.
@@ -67,6 +68,7 @@ class IndicatorProducer:
             symbol: Stock symbol.
             timestamp: Timestamp of the indicators.
             indicators: Dictionary of indicator values.
+            data_quality: Optional data quality metadata from freshness check.
 
         Returns:
             True if published successfully, False otherwise.
@@ -79,13 +81,17 @@ class IndicatorProducer:
                 "event_type": "INDICATOR_UPDATE",
                 "source": "analytics-service",
                 "timestamp": timestamp.isoformat() + "Z",
-                "schema_version": "1.0",
+                "schema_version": "1.1",  # Bumped version for data_quality field
                 "data": {
                     "symbol": symbol,
                     "time": timestamp.isoformat() + "Z",
                     "indicators": indicators,
                 },
             }
+
+            # Include data quality metadata if available
+            if data_quality:
+                event["data"]["data_quality"] = data_quality
 
             # Use symbol as key for partitioning
             future = self._producer.send(

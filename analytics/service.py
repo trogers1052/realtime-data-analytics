@@ -14,6 +14,7 @@ from .kafka_consumer import QuoteConsumer
 from .kafka_producer import IndicatorProducer
 from .database import IndicatorRepository
 from .market_data_db import MarketDataRepository
+from .redis_client import FreshnessClient
 
 logger = logging.getLogger(__name__)
 
@@ -33,11 +34,15 @@ class AnalyticsService:
         self.producer: IndicatorProducer = None
         self.repository: IndicatorRepository = None
         self.market_data_repo: MarketDataRepository = None
+        self.freshness_client: FreshnessClient = None
 
         # In-memory storage for price data per symbol
         # Key: symbol, Value: list of price records
         self.price_buffer: Dict[str, List[Dict]] = defaultdict(list)
         self.max_buffer_size = settings.min_bars_for_calculation * 2  # Keep 2x minimum
+
+        # Track data quality warnings per symbol
+        self._freshness_warnings: Dict[str, str] = {}
 
     def initialize(self) -> bool:
         """
@@ -46,6 +51,25 @@ class AnalyticsService:
         Returns:
             True if all connections successful, False otherwise.
         """
+        # Initialize Redis client (for checking data freshness)
+        if self.settings.check_data_freshness:
+            self.freshness_client = FreshnessClient(
+                host=self.settings.redis_host,
+                port=self.settings.redis_port,
+                password=self.settings.redis_password,
+                db=self.settings.redis_db,
+            )
+            if not self.freshness_client.connect():
+                logger.warning("Failed to connect to Redis, continuing without freshness checks")
+                self.freshness_client = None
+            else:
+                # Check ingestion service health on startup
+                is_healthy, reason = self.freshness_client.is_ingestion_healthy()
+                if is_healthy:
+                    logger.info("Ingestion service is healthy")
+                else:
+                    logger.warning(f"Ingestion service may have issues: {reason}")
+
         # Initialize database repository (for storing indicators)
         if self.settings.enable_postgres_storage:
             self.repository = IndicatorRepository(self.settings.database_url)
@@ -197,6 +221,26 @@ class AnalyticsService:
             symbol: Stock symbol.
         """
         try:
+            # Check data freshness if enabled
+            data_quality = None
+            if self.freshness_client:
+                freshness = self.freshness_client.get_symbol_freshness(symbol)
+                if freshness:
+                    data_quality = freshness.to_dict()
+
+                    # Log warning if data is not ready (but still calculate)
+                    if not freshness.is_ready:
+                        warning_key = f"{symbol}:{freshness.status}"
+                        if self._freshness_warnings.get(symbol) != warning_key:
+                            self._freshness_warnings[symbol] = warning_key
+                            is_ready, reason = self.freshness_client.is_symbol_ready(symbol)
+                            logger.warning(f"Data quality warning for {symbol}: {reason}")
+                else:
+                    # No freshness data available - log once
+                    if symbol not in self._freshness_warnings:
+                        self._freshness_warnings[symbol] = "no_data"
+                        logger.warning(f"No freshness data available for {symbol}")
+
             # Convert buffer to DataFrame
             df = pd.DataFrame(self.price_buffer[symbol])
             df = df.sort_values('time')  # Ensure chronological order
@@ -221,12 +265,13 @@ class AnalyticsService:
             # Get latest timestamp
             latest_timestamp = df['time'].iloc[-1]
 
-            # Publish to Kafka
+            # Publish to Kafka (include data quality metadata)
             if self.producer:
                 self.producer.publish_indicator(
                     symbol=symbol,
                     timestamp=latest_timestamp,
                     indicators=indicators,
+                    data_quality=data_quality,
                 )
 
             # Store in database
@@ -237,7 +282,9 @@ class AnalyticsService:
                     indicators=indicators,
                 )
 
-            logger.info(f"Calculated and published indicators for {symbol}: {len(indicators)} indicators")
+            # Log with quality status
+            quality_status = "ready" if (data_quality and data_quality.get("is_ready")) else "warning"
+            logger.info(f"Calculated indicators for {symbol}: {len(indicators)} indicators (data: {quality_status})")
 
         except Exception as e:
             logger.error(f"Error calculating indicators for {symbol}: {e}", exc_info=True)
@@ -272,5 +319,8 @@ class AnalyticsService:
 
         if self.market_data_repo:
             self.market_data_repo.close()
+
+        if self.freshness_client:
+            self.freshness_client.close()
 
         logger.info("Analytics service stopped")

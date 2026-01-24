@@ -13,6 +13,9 @@ kafka-python>=2.0.0
 # Database
 psycopg2-binary>=2.9.0
 
+# Redis (for data freshness checks)
+redis>=5.0.0
+
 # Configuration
 python-dotenv>=1.0.0
 pydantic>=2.0.0
