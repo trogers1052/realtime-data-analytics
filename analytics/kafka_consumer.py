@@ -52,7 +52,10 @@ class QuoteConsumer:
                 bootstrap_servers=self.brokers,
                 group_id=self.consumer_group,
                 value_deserializer=lambda m: json.loads(m.decode('utf-8')),
-                auto_offset_reset='latest',  # Start from latest messages
+                # Use 'earliest' to prevent data loss on restart:
+                # - If offset is committed, resumes from last position
+                # - If consumer group is new/reset, processes from beginning
+                auto_offset_reset='earliest',
                 enable_auto_commit=True,
                 auto_commit_interval_ms=1000,
             )

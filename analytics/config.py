@@ -21,15 +21,15 @@ class Settings(BaseSettings):
     db_host: str = Field("localhost", description="PostgreSQL host")
     db_port: int = Field(5432, description="PostgreSQL port")
     db_user: str = Field("trader", description="PostgreSQL user")
-    db_password: str = Field("trader5", description="PostgreSQL password")
+    db_password: str = Field(..., description="PostgreSQL password (required)")  # No default - must be set via env
     db_name: str = Field("trading_platform", description="PostgreSQL database name")
 
     # Market Data Database (for loading historical bars)
     market_data_db_host: str = Field("localhost", description="Market data PostgreSQL host")
     market_data_db_port: int = Field(5432, description="Market data PostgreSQL port")
-    market_data_db_user: str = Field("trader", description="Market data PostgreSQL user")
-    market_data_db_password: str = Field("trader123", description="Market data PostgreSQL password")
-    market_data_db_name: str = Field("market_data", description="Market data PostgreSQL database name")
+    market_data_db_user: str = Field("ingestor", description="Market data PostgreSQL user")
+    market_data_db_password: str = Field(..., description="Market data PostgreSQL password (required)")  # No default - must be set via env
+    market_data_db_name: str = Field("stock_db", description="Market data PostgreSQL database name")
     
     # Historical data loading
     load_historical_data: bool = Field(True, description="Load historical bars on startup")
