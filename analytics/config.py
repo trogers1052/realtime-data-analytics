@@ -5,7 +5,7 @@ Configuration management for Analytics Service.
 import json
 from pydantic_settings import BaseSettings
 from pydantic import Field, field_validator
-from typing import List
+from typing import List, Union
 
 
 class Settings(BaseSettings):
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     macd_fast: int = Field(12, description="MACD fast period")
     macd_slow: int = Field(26, description="MACD slow period")
     macd_signal: int = Field(9, description="MACD signal period")
-    sma_periods: str = Field("[20,50,200]", description="SMA periods to calculate (comma-separated or JSON list)")
+    sma_periods: List[int] = Field(default=[20, 50, 200], description="SMA periods to calculate")
     bb_period: int = Field(20, description="Bollinger Bands period")
     bb_std_dev: float = Field(2.0, description="Bollinger Bands standard deviation")
     atr_period: int = Field(14, description="ATR period")
@@ -62,11 +62,12 @@ class Settings(BaseSettings):
     def parse_sma_periods(cls, v):
         """Parse SMA periods from string or list."""
         if isinstance(v, list):
-            return v
+            return [int(x) for x in v]
         if isinstance(v, str):
             # Try JSON first
             try:
-                return json.loads(v)
+                parsed = json.loads(v)
+                return [int(x) for x in parsed]
             except json.JSONDecodeError:
                 # Fall back to comma-separated
                 return [int(x.strip()) for x in v.split(',')]
@@ -75,11 +76,6 @@ class Settings(BaseSettings):
     @property
     def sma_periods_list(self) -> List[int]:
         """Get SMA periods as a list of integers."""
-        if isinstance(self.sma_periods, str):
-            try:
-                return json.loads(self.sma_periods)
-            except json.JSONDecodeError:
-                return [int(x.strip()) for x in self.sma_periods.split(',')]
         return self.sma_periods
 
     class Config:
