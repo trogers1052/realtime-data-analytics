@@ -50,11 +50,16 @@ def calculate_bollinger_bands(
 ) -> Dict[str, pd.Series]:
     """Calculate Bollinger Bands."""
     bb = ta.bbands(prices, length=period, std=std_dev)
-    
+
+    # Find columns dynamically (pandas-ta naming varies by version)
+    upper_col = [c for c in bb.columns if c.startswith('BBU_')][0]
+    middle_col = [c for c in bb.columns if c.startswith('BBM_')][0]
+    lower_col = [c for c in bb.columns if c.startswith('BBL_')][0]
+
     return {
-        "upper": bb[f"BBU_{period}_{std_dev}"],
-        "middle": bb[f"BBM_{period}_{std_dev}"],
-        "lower": bb[f"BBL_{period}_{std_dev}"],
+        "upper": bb[upper_col],
+        "middle": bb[middle_col],
+        "lower": bb[lower_col],
     }
 
 
