@@ -68,6 +68,11 @@ def calculate_atr(
     return ta.atr(high=high, low=low, close=close, length=period)
 
 
+def calculate_volume_sma(volume: pd.Series, period: int = 20) -> pd.Series:
+    """Calculate Simple Moving Average of Volume."""
+    return ta.sma(volume, length=period)
+
+
 def calculate_all_indicators(
     df: pd.DataFrame,
     rsi_period: int = 14,
@@ -78,6 +83,7 @@ def calculate_all_indicators(
     bb_period: int = 20,
     bb_std_dev: float = 2.0,
     atr_period: int = 14,
+    volume_sma_period: int = 20,
 ) -> Dict[str, Any]:
     """
     Calculate all technical indicators for a stock.
@@ -92,6 +98,7 @@ def calculate_all_indicators(
         bb_period: Bollinger Bands period (default: 20)
         bb_std_dev: Bollinger Bands standard deviation (default: 2.0)
         atr_period: ATR period (default: 14)
+        volume_sma_period: Volume SMA period (default: 20)
 
     Returns:
         Dictionary of indicator names to latest values (or None if insufficient data)
@@ -103,6 +110,22 @@ def calculate_all_indicators(
     indicators = {}
 
     try:
+        # =================================================================
+        # PRICE AND VOLUME (needed by decision-engine rules)
+        # =================================================================
+        indicators['close'] = float(df['close'].iloc[-1])
+        indicators['volume'] = float(df['volume'].iloc[-1])
+
+        # Volume SMA (for volume confirmation in rules)
+        if 'volume' in df.columns and len(df) >= volume_sma_period:
+            volume_sma = calculate_volume_sma(df['volume'], period=volume_sma_period)
+            if not volume_sma.empty and not pd.isna(volume_sma.iloc[-1]):
+                indicators['volume_sma_20'] = float(volume_sma.iloc[-1])
+
+        # =================================================================
+        # TECHNICAL INDICATORS
+        # =================================================================
+
         # RSI
         rsi = calculate_rsi(df['close'], period=rsi_period)
         if not rsi.empty and not pd.isna(rsi.iloc[-1]):
