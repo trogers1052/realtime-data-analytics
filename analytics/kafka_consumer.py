@@ -35,6 +35,7 @@ class QuoteConsumer:
         self.consumer_group = consumer_group
         self.message_handler = message_handler
         self._consumer: Optional[KafkaConsumer] = None
+        self._running = False
 
     def connect(self) -> bool:
         """
@@ -51,12 +52,10 @@ class QuoteConsumer:
                 self.topic,
                 bootstrap_servers=self.brokers,
                 group_id=self.consumer_group,
-                # Use 'earliest' to prevent data loss on restart:
-                # - If offset is committed, resumes from last position
-                # - If consumer group is new/reset, processes from beginning
                 auto_offset_reset='earliest',
-                enable_auto_commit=True,
-                auto_commit_interval_ms=1000,
+                enable_auto_commit=False,
+                session_timeout_ms=30000,
+                request_timeout_ms=40000,
             )
 
             logger.info("Successfully connected to Kafka consumer")
@@ -72,19 +71,30 @@ class QuoteConsumer:
             raise RuntimeError("Consumer not connected. Call connect() first.")
 
         logger.info(f"Starting to consume messages from topic: {self.topic}")
+        self._running = True
 
         try:
-            for message in self._consumer:
+            while self._running:
+                messages = self._consumer.poll(timeout_ms=1000)
+                if not messages:
+                    continue
+
+                for tp, records in messages.items():
+                    for message in records:
+                        try:
+                            try:
+                                event = json.loads(message.value.decode('utf-8'))
+                            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                                logger.error(f'Failed to decode message: {e}')
+                                continue
+                            self.message_handler(event)
+                        except Exception as e:
+                            logger.error(f"Error processing message: {e}", exc_info=True)
+
                 try:
-                    try:
-                        event = json.loads(message.value.decode('utf-8'))
-                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                        logger.error(f'Failed to decode message: {e}')
-                        continue
-                    self.message_handler(event)
-                except Exception as e:
-                    logger.error(f"Error processing message: {e}", exc_info=True)
-                    # Continue processing other messages
+                    self._consumer.commit()
+                except KafkaError as e:
+                    logger.error(f"Failed to commit offsets: {e}")
 
         except KeyboardInterrupt:
             logger.info("Consumer interrupted by user")
@@ -94,6 +104,7 @@ class QuoteConsumer:
 
     def close(self):
         """Close the Kafka consumer."""
+        self._running = False
         if self._consumer:
             try:
                 self._consumer.close()

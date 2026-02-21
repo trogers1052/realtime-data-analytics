@@ -37,6 +37,8 @@ class MarketDataRepository:
                 minconn=1,
                 maxconn=3,
                 dsn=self.connection_url,
+                connect_timeout=10,
+                options="-c statement_timeout=30000",
             )
             logger.info("Successfully connected to market data database")
             return True
@@ -82,7 +84,10 @@ class MarketDataRepository:
             return []
         finally:
             if conn:
-                self.pool.putconn(conn)
+                try:
+                    self.pool.putconn(conn, close=conn.closed != 0)
+                except Exception:
+                    pass
 
     def get_historical_bars(
         self,
@@ -143,7 +148,10 @@ class MarketDataRepository:
             return []
         finally:
             if conn:
-                self.pool.putconn(conn)
+                try:
+                    self.pool.putconn(conn, close=conn.closed != 0)
+                except Exception:
+                    pass
 
     def get_latest_bar_time(self, symbol: str) -> Optional[datetime]:
         """
@@ -185,7 +193,10 @@ class MarketDataRepository:
             return None
         finally:
             if conn:
-                self.pool.putconn(conn)
+                try:
+                    self.pool.putconn(conn, close=conn.closed != 0)
+                except Exception:
+                    pass
 
     def close(self):
         """Close the connection pool."""

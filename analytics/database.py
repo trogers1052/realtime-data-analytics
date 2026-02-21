@@ -38,6 +38,8 @@ class IndicatorRepository:
                 minconn=1,
                 maxconn=5,
                 dsn=self.connection_url,
+                connect_timeout=10,
+                options="-c statement_timeout=30000",
             )
             logger.info("Successfully connected to PostgreSQL")
             return True
@@ -105,11 +107,17 @@ class IndicatorRepository:
         except Exception as e:
             logger.error(f"Failed to store indicators for {symbol}: {e}", exc_info=True)
             if conn:
-                conn.rollback()
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
             return False
         finally:
             if conn:
-                self.pool.putconn(conn)
+                try:
+                    self.pool.putconn(conn, close=conn.closed != 0)
+                except Exception:
+                    pass
 
     def get_price_history(
         self,
@@ -172,7 +180,10 @@ class IndicatorRepository:
             return None
         finally:
             if conn:
-                self.pool.putconn(conn)
+                try:
+                    self.pool.putconn(conn, close=conn.closed != 0)
+                except Exception:
+                    pass
 
     def close(self):
         """Close the connection pool."""

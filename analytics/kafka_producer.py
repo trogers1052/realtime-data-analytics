@@ -42,9 +42,11 @@ class IndicatorProducer:
                 bootstrap_servers=self.brokers,
                 value_serializer=lambda v: json.dumps(v).encode("utf-8"),
                 key_serializer=lambda k: k.encode("utf-8") if k else None,
-                acks="all",  # Wait for all replicas to acknowledge
+                acks="all",
                 retries=3,
                 retry_backoff_ms=1000,
+                request_timeout_ms=30000,
+                max_block_ms=30000,
             )
 
             logger.info("Successfully connected to Kafka producer")
@@ -117,8 +119,8 @@ class IndicatorProducer:
         """Close the Kafka producer connection."""
         if self._producer:
             try:
-                self._producer.flush()
-                self._producer.close()
+                self._producer.flush(timeout=10)
+                self._producer.close(timeout=10)
                 logger.info("Kafka producer closed")
             except Exception as e:
                 logger.error(f"Error closing Kafka producer: {e}")

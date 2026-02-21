@@ -4,7 +4,7 @@ Analytics Service - Main processing logic.
 
 import logging
 from datetime import datetime
-from collections import defaultdict, deque
+from collections import deque
 from typing import Dict, List
 import pandas as pd
 
@@ -36,12 +36,10 @@ class AnalyticsService:
         self.market_data_repo: MarketDataRepository = None
         self.freshness_client: FreshnessClient = None
 
-        # In-memory storage for price data per symbol
-        # Key: symbol, Value: list of price records
         self.max_buffer_size = settings.min_bars_for_calculation * 2
-        self.price_buffer: Dict[str, deque] = defaultdict(lambda: deque(maxlen=self.max_buffer_size))
+        self.price_buffer: Dict[str, deque] = {}
 
-        # Track data quality warnings per symbol
+        self._max_tracked_symbols = 500
         self._freshness_warnings: Dict[str, str] = {}
 
     def initialize(self) -> bool:
@@ -134,7 +132,8 @@ class AnalyticsService:
                 )
 
                 if bars:
-                    # Add to buffer
+                    if symbol not in self.price_buffer:
+                        self.price_buffer[symbol] = deque(maxlen=self.max_buffer_size)
                     self.price_buffer[symbol].extend(bars)
                     total_bars_loaded += len(bars)
                     logger.info(f"Loaded {len(bars)} historical bars for {symbol}")
@@ -199,7 +198,8 @@ class AnalyticsService:
                     logger.debug(f"Skipping duplicate/old quote for {symbol}: {timestamp} <= {latest_time}")
                     return
 
-            # Add to buffer
+            if symbol not in self.price_buffer:
+                self.price_buffer[symbol] = deque(maxlen=self.max_buffer_size)
             self.price_buffer[symbol].append(price_record)
 
 
@@ -229,12 +229,16 @@ class AnalyticsService:
                     if not freshness.is_ready:
                         warning_key = f"{symbol}:{freshness.status}"
                         if self._freshness_warnings.get(symbol) != warning_key:
+                            if len(self._freshness_warnings) >= self._max_tracked_symbols:
+                                self._freshness_warnings.clear()
                             self._freshness_warnings[symbol] = warning_key
                             is_ready, reason = self.freshness_client.is_symbol_ready(symbol)
                             logger.warning(f"Data quality warning for {symbol}: {reason}")
                 else:
                     # No freshness data available - log once
                     if symbol not in self._freshness_warnings:
+                        if len(self._freshness_warnings) >= self._max_tracked_symbols:
+                            self._freshness_warnings.clear()
                         self._freshness_warnings[symbol] = "no_data"
                         logger.warning(f"No freshness data available for {symbol}")
 

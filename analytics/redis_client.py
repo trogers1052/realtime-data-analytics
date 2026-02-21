@@ -99,6 +99,9 @@ class FreshnessClient:
                 password=self.password if self.password else None,
                 db=self.db,
                 decode_responses=True,
+                socket_timeout=5,
+                socket_connect_timeout=5,
+                retry_on_timeout=True,
             )
 
             # Test connection

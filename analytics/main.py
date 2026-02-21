@@ -34,8 +34,6 @@ _service: AnalyticsService = None
 def signal_handler(signum, frame):
     """Handle shutdown signals."""
     logger.info(f"Received signal {signum}, shutting down...")
-    if _service:
-        _service.shutdown()
     sys.exit(0)
 
 
