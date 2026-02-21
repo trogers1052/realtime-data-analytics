@@ -4,6 +4,8 @@ Technical Indicator Calculations using pandas-ta.
 Calculates RSI, MACD, SMA, Bollinger Bands, ATR, and other indicators.
 """
 
+import math
+
 import pandas as pd
 import pandas_ta as ta
 from typing import Dict, Any, Optional
@@ -117,50 +119,93 @@ def calculate_all_indicators(
     try:
         # =================================================================
         # PRICE AND VOLUME (needed by decision-engine rules)
+        # close is the anchor value — if it's invalid everything downstream
+        # is meaningless, so treat that as a hard failure.
         # =================================================================
-        indicators['close'] = float(df['close'].iloc[-1])
-        indicators['volume'] = float(df['volume'].iloc[-1])
+        close_val = float(df['close'].iloc[-1])
+        if not math.isfinite(close_val) or close_val <= 0:
+            logger.error(
+                f"Invalid close price ({close_val}) — skipping indicator calculation"
+            )
+            return {}
+        indicators['close'] = close_val
+
+        volume_val = float(df['volume'].iloc[-1])
+        if math.isfinite(volume_val) and volume_val >= 0:
+            indicators['volume'] = volume_val
+        else:
+            logger.warning(f"Invalid volume ({volume_val}) — omitting from indicators")
 
         # Volume SMA (for volume confirmation in rules)
         if 'volume' in df.columns and len(df) >= volume_sma_period:
             volume_sma = calculate_volume_sma(df['volume'], period=volume_sma_period)
             if not volume_sma.empty and not pd.isna(volume_sma.iloc[-1]):
-                indicators['volume_sma_20'] = float(volume_sma.iloc[-1])
+                vsma = float(volume_sma.iloc[-1])
+                if math.isfinite(vsma) and vsma >= 0:
+                    indicators['volume_sma_20'] = vsma
 
         # =================================================================
         # TECHNICAL INDICATORS
+        # Each indicator is independently validated before being published.
+        # Rules that require a missing indicator will skip gracefully.
         # =================================================================
 
-        # RSI
+        # RSI — must be in [0, 100]
         rsi = calculate_rsi(df['close'], period=rsi_period)
         if not rsi.empty and not pd.isna(rsi.iloc[-1]):
-            indicators['RSI_14'] = float(rsi.iloc[-1])
+            rsi_val = float(rsi.iloc[-1])
+            if math.isfinite(rsi_val) and 0.0 <= rsi_val <= 100.0:
+                indicators['RSI_14'] = rsi_val
+            else:
+                logger.warning(f"RSI out of bounds ({rsi_val}) — omitting")
 
-        # MACD
+        # MACD — all three components must be finite; partial sets are useless
         macd_data = calculate_macd(df['close'], fast=macd_fast, slow=macd_slow, signal=macd_signal)
         if not macd_data['macd'].empty and not pd.isna(macd_data['macd'].iloc[-1]):
-            indicators['MACD'] = float(macd_data['macd'].iloc[-1])
-            indicators['MACD_SIGNAL'] = float(macd_data['signal'].iloc[-1])
-            indicators['MACD_HISTOGRAM'] = float(macd_data['histogram'].iloc[-1])
+            macd_val = float(macd_data['macd'].iloc[-1])
+            signal_val = float(macd_data['signal'].iloc[-1])
+            hist_val = float(macd_data['histogram'].iloc[-1])
+            if (math.isfinite(macd_val)
+                    and math.isfinite(signal_val)
+                    and math.isfinite(hist_val)):
+                indicators['MACD'] = macd_val
+                indicators['MACD_SIGNAL'] = signal_val
+                indicators['MACD_HISTOGRAM'] = hist_val
+            else:
+                logger.warning(
+                    f"MACD components not all finite "
+                    f"(macd={macd_val}, signal={signal_val}, hist={hist_val}) — omitting"
+                )
 
         # SMAs
         for period in sma_periods:
             if len(df) >= period:
                 sma = calculate_sma(df['close'], period=period)
                 if not sma.empty and not pd.isna(sma.iloc[-1]):
-                    indicators[f'SMA_{period}'] = float(sma.iloc[-1])
+                    sma_val = float(sma.iloc[-1])
+                    if math.isfinite(sma_val) and sma_val > 0:
+                        indicators[f'SMA_{period}'] = sma_val
 
-        # Bollinger Bands
+        # Bollinger Bands — require all three bands to be coherent
         bb = calculate_bollinger_bands(df['close'], period=bb_period, std_dev=bb_std_dev)
         if not bb['upper'].empty and not pd.isna(bb['upper'].iloc[-1]):
-            indicators['BB_UPPER'] = float(bb['upper'].iloc[-1])
-            indicators['BB_MIDDLE'] = float(bb['middle'].iloc[-1])
-            indicators['BB_LOWER'] = float(bb['lower'].iloc[-1])
+            upper = float(bb['upper'].iloc[-1])
+            middle = float(bb['middle'].iloc[-1])
+            lower = float(bb['lower'].iloc[-1])
+            if (math.isfinite(upper) and math.isfinite(middle) and math.isfinite(lower)
+                    and upper >= middle >= lower):
+                indicators['BB_UPPER'] = upper
+                indicators['BB_MIDDLE'] = middle
+                indicators['BB_LOWER'] = lower
 
-        # ATR
+        # ATR — must be strictly positive; zero/negative ATR is nonsensical
         atr = calculate_atr(df['high'], df['low'], df['close'], period=atr_period)
         if not atr.empty and not pd.isna(atr.iloc[-1]):
-            indicators['ATR_14'] = float(atr.iloc[-1])
+            atr_val = float(atr.iloc[-1])
+            if math.isfinite(atr_val) and atr_val > 0:
+                indicators['ATR_14'] = atr_val
+            else:
+                logger.warning(f"ATR non-positive ({atr_val}) — omitting")
 
     except Exception as e:
         logger.error(f"Error calculating indicators: {e}", exc_info=True)
