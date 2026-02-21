@@ -75,6 +75,37 @@ def calculate_atr(
     return ta.atr(high=high, low=low, close=close, length=period)
 
 
+def calculate_stochastic(
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    k: int = 14,
+    d: int = 3,
+    smooth_k: int = 3,
+) -> Dict[str, pd.Series]:
+    """Calculate Stochastic Oscillator (%K and %D)."""
+    stoch = ta.stoch(high=high, low=low, close=close, k=k, d=d, smooth_k=smooth_k)
+    return {
+        "k": stoch[f"STOCHk_{k}_{d}_{smooth_k}"],
+        "d": stoch[f"STOCHd_{k}_{d}_{smooth_k}"],
+    }
+
+
+def calculate_adx(
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    length: int = 14,
+) -> Dict[str, pd.Series]:
+    """Calculate Average Directional Index (ADX) with directional components."""
+    adx_data = ta.adx(high=high, low=low, close=close, length=length)
+    return {
+        "adx": adx_data[f"ADX_{length}"],
+        "dmp": adx_data[f"DMP_{length}"],
+        "dmn": adx_data[f"DMN_{length}"],
+    }
+
+
 def calculate_volume_sma(volume: pd.Series, period: int = 20) -> pd.Series:
     """Calculate Simple Moving Average of Volume."""
     return ta.sma(volume, length=period)
@@ -87,9 +118,14 @@ def calculate_all_indicators(
     macd_slow: int = 26,
     macd_signal: int = 9,
     sma_periods: list = [20, 50, 200],
+    ema_periods: list = [9, 21],
     bb_period: int = 20,
     bb_std_dev: float = 2.0,
     atr_period: int = 14,
+    stoch_k: int = 14,
+    stoch_d: int = 3,
+    stoch_smooth_k: int = 3,
+    adx_period: int = 14,
     volume_sma_period: int = 20,
 ) -> Dict[str, Any]:
     """
@@ -206,6 +242,50 @@ def calculate_all_indicators(
                 indicators['ATR_14'] = atr_val
             else:
                 logger.warning(f"ATR non-positive ({atr_val}) — omitting")
+
+        # EMAs — must be positive (same validation as SMA)
+        for period in ema_periods:
+            if len(df) >= period:
+                ema = calculate_ema(df['close'], period=period)
+                if not ema.empty and not pd.isna(ema.iloc[-1]):
+                    ema_val = float(ema.iloc[-1])
+                    if math.isfinite(ema_val) and ema_val > 0:
+                        indicators[f'EMA_{period}'] = ema_val
+
+        # Stochastic — both %K and %D must be in [0, 100]; omit both if either invalid
+        if len(df) >= stoch_k:
+            stoch = calculate_stochastic(
+                df['high'], df['low'], df['close'],
+                k=stoch_k, d=stoch_d, smooth_k=stoch_smooth_k,
+            )
+            if not stoch['k'].empty and not pd.isna(stoch['k'].iloc[-1]):
+                k_val = float(stoch['k'].iloc[-1])
+                d_val = float(stoch['d'].iloc[-1])
+                if (math.isfinite(k_val) and math.isfinite(d_val)
+                        and 0.0 <= k_val <= 100.0 and 0.0 <= d_val <= 100.0):
+                    indicators['STOCH_K'] = k_val
+                    indicators['STOCH_D'] = d_val
+                else:
+                    logger.warning(
+                        f"Stochastic out of bounds (K={k_val}, D={d_val}) — omitting"
+                    )
+
+        # ADX — must be in [0, 100]; directional components also validated
+        if len(df) >= adx_period:
+            adx_data = calculate_adx(df['high'], df['low'], df['close'], length=adx_period)
+            if not adx_data['adx'].empty and not pd.isna(adx_data['adx'].iloc[-1]):
+                adx_val = float(adx_data['adx'].iloc[-1])
+                dmp_val = float(adx_data['dmp'].iloc[-1])
+                dmn_val = float(adx_data['dmn'].iloc[-1])
+                if (math.isfinite(adx_val) and 0.0 <= adx_val <= 100.0
+                        and math.isfinite(dmp_val) and math.isfinite(dmn_val)):
+                    indicators['ADX_14'] = adx_val
+                    indicators['DMP_14'] = dmp_val
+                    indicators['DMN_14'] = dmn_val
+                else:
+                    logger.warning(
+                        f"ADX out of bounds (ADX={adx_val}, DM+={dmp_val}, DM-={dmn_val}) — omitting"
+                    )
 
     except Exception as e:
         logger.error(f"Error calculating indicators: {e}", exc_info=True)

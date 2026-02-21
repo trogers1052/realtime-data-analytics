@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     bb_period: int = Field(20, description="Bollinger Bands period")
     bb_std_dev: float = Field(2.0, description="Bollinger Bands standard deviation")
     atr_period: int = Field(14, description="ATR period")
+    ema_periods: List[int] = Field(default=[9, 21], description="EMA periods to calculate")
+    stoch_k: int = Field(14, description="Stochastic %K period")
+    stoch_d: int = Field(3, description="Stochastic %D period")
+    stoch_smooth_k: int = Field(3, description="Stochastic %K smoothing")
+    adx_period: int = Field(14, description="ADX period")
 
     # Processing settings
     batch_size: int = Field(100, description="Number of events to process before calculating indicators")
@@ -57,10 +62,10 @@ class Settings(BaseSettings):
     redis_db: int = Field(0, description="Redis database number")
     check_data_freshness: bool = Field(True, description="Check data freshness before calculating")
 
-    @field_validator('sma_periods', mode='before')
+    @field_validator('sma_periods', 'ema_periods', mode='before')
     @classmethod
-    def parse_sma_periods(cls, v):
-        """Parse SMA periods from string or list."""
+    def parse_period_list(cls, v):
+        """Parse period lists from string or list."""
         if isinstance(v, list):
             return [int(x) for x in v]
         if isinstance(v, str):

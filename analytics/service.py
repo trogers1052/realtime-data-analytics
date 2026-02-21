@@ -3,9 +3,10 @@ Analytics Service - Main processing logic.
 """
 
 import logging
+import time
 from datetime import datetime
 from collections import deque
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import pandas as pd
 
 from .config import Settings
@@ -17,6 +18,11 @@ from .market_data_db import MarketDataRepository
 from .redis_client import FreshnessClient
 
 logger = logging.getLogger(__name__)
+
+# Memory eviction constants
+MAX_FRESHNESS_ENTRIES = 200
+MAX_PRICE_BUFFER_SYMBOLS = 200
+EVICTION_MAX_AGE_SECONDS = 30 * 60  # 30 minutes
 
 
 class AnalyticsService:
@@ -38,9 +44,53 @@ class AnalyticsService:
 
         self.max_buffer_size = settings.min_bars_for_calculation * 2
         self.price_buffer: Dict[str, deque] = {}
+        # Tracks last update time per symbol in price_buffer (monotonic seconds)
+        self._buffer_last_access: Dict[str, float] = {}
 
-        self._max_tracked_symbols = 500
-        self._freshness_warnings: Dict[str, str] = {}
+        # value = (warning_key, monotonic_timestamp)
+        self._freshness_warnings: Dict[str, Tuple[str, float]] = {}
+
+    def _evict_stale_freshness_warnings(self):
+        """Remove freshness warnings older than EVICTION_MAX_AGE_SECONDS."""
+        if len(self._freshness_warnings) <= MAX_FRESHNESS_ENTRIES:
+            return
+        now = time.monotonic()
+        stale_keys = [
+            k for k, (_, ts) in self._freshness_warnings.items()
+            if now - ts > EVICTION_MAX_AGE_SECONDS
+        ]
+        for k in stale_keys:
+            del self._freshness_warnings[k]
+        # If still over limit after time-based eviction, drop oldest entries
+        if len(self._freshness_warnings) > MAX_FRESHNESS_ENTRIES:
+            sorted_keys = sorted(
+                self._freshness_warnings,
+                key=lambda k: self._freshness_warnings[k][1],
+            )
+            for k in sorted_keys[: len(self._freshness_warnings) - MAX_FRESHNESS_ENTRIES]:
+                del self._freshness_warnings[k]
+
+    def _evict_stale_price_buffers(self):
+        """Remove price buffer entries for symbols not seen in 30 minutes."""
+        if len(self.price_buffer) <= MAX_PRICE_BUFFER_SYMBOLS:
+            return
+        now = time.monotonic()
+        stale_keys = [
+            k for k, ts in self._buffer_last_access.items()
+            if now - ts > EVICTION_MAX_AGE_SECONDS
+        ]
+        for k in stale_keys:
+            self.price_buffer.pop(k, None)
+            self._buffer_last_access.pop(k, None)
+        # If still over limit, drop least recently accessed
+        if len(self.price_buffer) > MAX_PRICE_BUFFER_SYMBOLS:
+            sorted_keys = sorted(
+                self._buffer_last_access,
+                key=lambda k: self._buffer_last_access[k],
+            )
+            for k in sorted_keys[: len(self.price_buffer) - MAX_PRICE_BUFFER_SYMBOLS]:
+                self.price_buffer.pop(k, None)
+                self._buffer_last_access.pop(k, None)
 
     def initialize(self) -> bool:
         """
@@ -135,6 +185,7 @@ class AnalyticsService:
                     if symbol not in self.price_buffer:
                         self.price_buffer[symbol] = deque(maxlen=self.max_buffer_size)
                     self.price_buffer[symbol].extend(bars)
+                    self._buffer_last_access[symbol] = time.monotonic()
                     total_bars_loaded += len(bars)
                     logger.info(f"Loaded {len(bars)} historical bars for {symbol}")
 
@@ -191,6 +242,23 @@ class AnalyticsService:
                 'volume': int(data.get('volume', 0)),
             }
 
+            # Validate OHLCV: reject bars with non-positive OHLC or high < low
+            ohlc_values = (price_record['open'], price_record['high'],
+                           price_record['low'], price_record['close'])
+            if any(v <= 0 for v in ohlc_values):
+                logger.warning(
+                    f"Rejecting quote for {symbol}: non-positive OHLC values "
+                    f"(O={price_record['open']}, H={price_record['high']}, "
+                    f"L={price_record['low']}, C={price_record['close']})"
+                )
+                return
+            if price_record['high'] < price_record['low']:
+                logger.warning(
+                    f"Rejecting quote for {symbol}: high ({price_record['high']}) "
+                    f"< low ({price_record['low']})"
+                )
+                return
+
             # Check if we already have this timestamp (avoid duplicates)
             if symbol in self.price_buffer and self.price_buffer[symbol]:
                 latest_time = self.price_buffer[symbol][-1]['time']
@@ -199,9 +267,10 @@ class AnalyticsService:
                     return
 
             if symbol not in self.price_buffer:
+                self._evict_stale_price_buffers()
                 self.price_buffer[symbol] = deque(maxlen=self.max_buffer_size)
             self.price_buffer[symbol].append(price_record)
-
+            self._buffer_last_access[symbol] = time.monotonic()
 
             # Calculate indicators if we have enough data
             if len(self.price_buffer[symbol]) >= self.settings.min_bars_for_calculation:
@@ -228,18 +297,17 @@ class AnalyticsService:
                     # Log warning if data is not ready (but still calculate)
                     if not freshness.is_ready:
                         warning_key = f"{symbol}:{freshness.status}"
-                        if self._freshness_warnings.get(symbol) != warning_key:
-                            if len(self._freshness_warnings) >= self._max_tracked_symbols:
-                                self._freshness_warnings.clear()
-                            self._freshness_warnings[symbol] = warning_key
+                        existing = self._freshness_warnings.get(symbol)
+                        if existing is None or existing[0] != warning_key:
+                            self._evict_stale_freshness_warnings()
+                            self._freshness_warnings[symbol] = (warning_key, time.monotonic())
                             is_ready, reason = self.freshness_client.is_symbol_ready(symbol)
                             logger.warning(f"Data quality warning for {symbol}: {reason}")
                 else:
                     # No freshness data available - log once
                     if symbol not in self._freshness_warnings:
-                        if len(self._freshness_warnings) >= self._max_tracked_symbols:
-                            self._freshness_warnings.clear()
-                        self._freshness_warnings[symbol] = "no_data"
+                        self._evict_stale_freshness_warnings()
+                        self._freshness_warnings[symbol] = ("no_data", time.monotonic())
                         logger.warning(f"No freshness data available for {symbol}")
 
             # Convert buffer to DataFrame
@@ -254,9 +322,14 @@ class AnalyticsService:
                 macd_slow=self.settings.macd_slow,
                 macd_signal=self.settings.macd_signal,
                 sma_periods=self.settings.sma_periods_list,
+                ema_periods=self.settings.ema_periods,
                 bb_period=self.settings.bb_period,
                 bb_std_dev=self.settings.bb_std_dev,
                 atr_period=self.settings.atr_period,
+                stoch_k=self.settings.stoch_k,
+                stoch_d=self.settings.stoch_d,
+                stoch_smooth_k=self.settings.stoch_smooth_k,
+                adx_period=self.settings.adx_period,
             )
 
             if not indicators:
@@ -274,6 +347,10 @@ class AnalyticsService:
                     indicators=indicators,
                     data_quality=data_quality,
                 )
+
+            # Publish to Redis for downstream consumers (trading-journal risk metrics)
+            if self.freshness_client:
+                self.freshness_client.publish_indicators(symbol, indicators)
 
             # Store in database
             if self.repository and self.settings.enable_postgres_storage:
@@ -306,22 +383,41 @@ class AnalyticsService:
             raise
 
     def shutdown(self):
-        """Shutdown the service gracefully."""
+        """Shutdown the service gracefully.
+
+        Order: stop consumer loop, close external resources (Redis, Postgres),
+        then close Kafka connections last.
+        """
         logger.info("Shutting down analytics service...")
 
+        # 1. Stop the consumer loop (idempotent if already stopped by signal)
         if self.consumer:
             self.consumer.close()
 
-        if self.producer:
-            self.producer.close()
+        # 2. Close external resources first (Redis, Postgres)
+        if self.freshness_client:
+            try:
+                self.freshness_client.close()
+            except Exception as e:
+                logger.error(f"Error closing Redis: {e}")
 
         if self.repository:
-            self.repository.close()
+            try:
+                self.repository.close()
+            except Exception as e:
+                logger.error(f"Error closing database: {e}")
 
         if self.market_data_repo:
-            self.market_data_repo.close()
+            try:
+                self.market_data_repo.close()
+            except Exception as e:
+                logger.error(f"Error closing market data database: {e}")
 
-        if self.freshness_client:
-            self.freshness_client.close()
+        # 3. Close Kafka producer last (flush pending messages)
+        if self.producer:
+            try:
+                self.producer.close()
+            except Exception as e:
+                logger.error(f"Error closing Kafka producer: {e}")
 
         logger.info("Analytics service stopped")

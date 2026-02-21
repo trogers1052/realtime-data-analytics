@@ -217,6 +217,27 @@ class FreshnessClient:
 
         return True, ""
 
+    def publish_indicators(self, symbol: str, indicators: dict) -> bool:
+        """
+        Store the latest indicator snapshot for a symbol in Redis.
+
+        Key: indicators:{symbol}, TTL: 10 minutes.
+        Used by trading-journal to snapshot risk_metrics_at_entry on buy trades.
+
+        Returns:
+            True if stored successfully, False on any error.
+        """
+        if not self._client:
+            return False
+
+        try:
+            key = f"indicators:{symbol}"
+            self._client.set(key, json.dumps(indicators), ex=600)
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to publish indicators for {symbol} to Redis: {e}")
+            return False
+
     def is_ingestion_healthy(self) -> tuple[bool, str]:
         """
         Check if the ingestion service is healthy.

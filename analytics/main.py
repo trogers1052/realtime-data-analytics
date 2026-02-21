@@ -32,9 +32,12 @@ _service: AnalyticsService = None
 
 
 def signal_handler(signum, frame):
-    """Handle shutdown signals."""
+    """Handle shutdown signals by stopping the consumer loop gracefully."""
     logger.info(f"Received signal {signum}, shutting down...")
-    sys.exit(0)
+    if _service and _service.consumer:
+        _service.consumer.close()
+    else:
+        sys.exit(0)
 
 
 def _start_health_server() -> None:
