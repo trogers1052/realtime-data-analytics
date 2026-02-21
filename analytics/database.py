@@ -67,7 +67,11 @@ class IndicatorRepository:
 
         conn = None
         try:
-            conn = self.pool.getconn()
+            try:
+                conn = self.pool.getconn()
+            except psycopg2.pool.PoolError as e:
+                logger.error(f'Connection pool exhausted: {e}')
+                raise
             cursor = conn.cursor()
 
             # Prepare indicator rows for insertion
@@ -130,7 +134,11 @@ class IndicatorRepository:
 
         conn = None
         try:
-            conn = self.pool.getconn()
+            try:
+                conn = self.pool.getconn()
+            except psycopg2.pool.PoolError as e:
+                logger.error(f'Connection pool exhausted: {e}')
+                raise
             cursor = conn.cursor()
 
             # Query price_data_daily table

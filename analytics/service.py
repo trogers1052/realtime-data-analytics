@@ -4,7 +4,7 @@ Analytics Service - Main processing logic.
 
 import logging
 from datetime import datetime
-from collections import defaultdict
+from collections import defaultdict, deque
 from typing import Dict, List
 import pandas as pd
 
@@ -38,8 +38,8 @@ class AnalyticsService:
 
         # In-memory storage for price data per symbol
         # Key: symbol, Value: list of price records
-        self.price_buffer: Dict[str, List[Dict]] = defaultdict(list)
-        self.max_buffer_size = settings.min_bars_for_calculation * 2  # Keep 2x minimum
+        self.max_buffer_size = settings.min_bars_for_calculation * 2
+        self.price_buffer: Dict[str, deque] = defaultdict(lambda: deque(maxlen=self.max_buffer_size))
 
         # Track data quality warnings per symbol
         self._freshness_warnings: Dict[str, str] = {}
@@ -135,7 +135,7 @@ class AnalyticsService:
 
                 if bars:
                     # Add to buffer
-                    self.price_buffer[symbol] = bars
+                    self.price_buffer[symbol].extend(bars)
                     total_bars_loaded += len(bars)
                     logger.info(f"Loaded {len(bars)} historical bars for {symbol}")
 
@@ -202,9 +202,6 @@ class AnalyticsService:
             # Add to buffer
             self.price_buffer[symbol].append(price_record)
 
-            # Trim buffer if too large
-            if len(self.price_buffer[symbol]) > self.max_buffer_size:
-                self.price_buffer[symbol] = self.price_buffer[symbol][-self.max_buffer_size:]
 
             # Calculate indicators if we have enough data
             if len(self.price_buffer[symbol]) >= self.settings.min_bars_for_calculation:

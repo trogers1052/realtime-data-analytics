@@ -51,7 +51,6 @@ class QuoteConsumer:
                 self.topic,
                 bootstrap_servers=self.brokers,
                 group_id=self.consumer_group,
-                value_deserializer=lambda m: json.loads(m.decode('utf-8')),
                 # Use 'earliest' to prevent data loss on restart:
                 # - If offset is committed, resumes from last position
                 # - If consumer group is new/reset, processes from beginning
@@ -77,7 +76,11 @@ class QuoteConsumer:
         try:
             for message in self._consumer:
                 try:
-                    event = message.value
+                    try:
+                        event = json.loads(message.value.decode('utf-8'))
+                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                        logger.error(f'Failed to decode message: {e}')
+                        continue
                     self.message_handler(event)
                 except Exception as e:
                     logger.error(f"Error processing message: {e}", exc_info=True)

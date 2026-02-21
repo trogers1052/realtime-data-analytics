@@ -56,7 +56,11 @@ class MarketDataRepository:
 
         conn = None
         try:
-            conn = self.pool.getconn()
+            try:
+                conn = self.pool.getconn()
+            except psycopg2.pool.PoolError as e:
+                logger.error(f'Connection pool exhausted: {e}')
+                raise
             cursor = conn.cursor()
 
             query = """
@@ -100,7 +104,11 @@ class MarketDataRepository:
 
         conn = None
         try:
-            conn = self.pool.getconn()
+            try:
+                conn = self.pool.getconn()
+            except psycopg2.pool.PoolError as e:
+                logger.error(f'Connection pool exhausted: {e}')
+                raise
             cursor = conn.cursor()
 
             # Query ohlcv_1min table (TimescaleDB hypertable)
@@ -152,7 +160,11 @@ class MarketDataRepository:
 
         conn = None
         try:
-            conn = self.pool.getconn()
+            try:
+                conn = self.pool.getconn()
+            except psycopg2.pool.PoolError as e:
+                logger.error(f'Connection pool exhausted: {e}')
+                raise
             cursor = conn.cursor()
 
             query = """
