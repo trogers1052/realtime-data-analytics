@@ -105,9 +105,9 @@ class IndicatorProducer:
             # Wait for send to complete (with timeout)
             record_metadata = future.get(timeout=10)
 
-            logger.debug(
-                f"Published indicator event for {symbol} to "
-                f"{record_metadata.topic}:{record_metadata.partition}:{record_metadata.offset}"
+            logger.info(
+                f"Published indicators for {symbol} -> "
+                f"{record_metadata.topic}:{record_metadata.partition}"
             )
             return True
 
