@@ -49,19 +49,27 @@ def calculate_bollinger_bands(
     prices: pd.Series,
     period: int = 20,
     std_dev: float = 2.0
-) -> Dict[str, pd.Series]:
-    """Calculate Bollinger Bands."""
+) -> Optional[Dict[str, pd.Series]]:
+    """Calculate Bollinger Bands. Returns None if insufficient data."""
+    if len(prices) < period:
+        return None
+
     bb = ta.bbands(prices, length=period, std=std_dev)
+    if bb is None or bb.empty:
+        return None
 
     # Find columns dynamically (pandas-ta naming varies by version)
-    upper_col = [c for c in bb.columns if c.startswith('BBU_')][0]
-    middle_col = [c for c in bb.columns if c.startswith('BBM_')][0]
-    lower_col = [c for c in bb.columns if c.startswith('BBL_')][0]
+    upper_cols = [c for c in bb.columns if c.startswith('BBU_')]
+    middle_cols = [c for c in bb.columns if c.startswith('BBM_')]
+    lower_cols = [c for c in bb.columns if c.startswith('BBL_')]
+
+    if not upper_cols or not middle_cols or not lower_cols:
+        return None
 
     return {
-        "upper": bb[upper_col],
-        "middle": bb[middle_col],
-        "lower": bb[lower_col],
+        "upper": bb[upper_cols[0]],
+        "middle": bb[middle_cols[0]],
+        "lower": bb[lower_cols[0]],
     }
 
 
@@ -224,7 +232,7 @@ def calculate_all_indicators(
 
         # Bollinger Bands — require all three bands to be coherent
         bb = calculate_bollinger_bands(df['close'], period=bb_period, std_dev=bb_std_dev)
-        if not bb['upper'].empty and not pd.isna(bb['upper'].iloc[-1]):
+        if bb is not None and not bb['upper'].empty and not pd.isna(bb['upper'].iloc[-1]):
             upper = float(bb['upper'].iloc[-1])
             middle = float(bb['middle'].iloc[-1])
             lower = float(bb['lower'].iloc[-1])
