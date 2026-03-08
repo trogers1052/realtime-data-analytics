@@ -4,6 +4,7 @@ Kafka consumer for quote events.
 
 import json
 import logging
+import threading
 import time
 from typing import Callable, Optional
 from kafka import KafkaConsumer
@@ -41,6 +42,7 @@ class QuoteConsumer:
         self.message_handler = message_handler
         self._consumer: Optional[KafkaConsumer] = None
         self._running = False
+        self._stop_event = threading.Event()
 
     def connect(self) -> bool:
         """
@@ -71,12 +73,20 @@ class QuoteConsumer:
             return False
 
     def _consume_loop(self):
-        """Run the inner consume loop. Raises on unrecoverable errors."""
+        """Run the inner consume loop. Raises on unrecoverable errors.
+
+        Offsets are only committed after ALL messages in a poll batch are
+        successfully processed.  If any message fails (decode error or handler
+        exception), the batch is NOT committed so that messages can be retried
+        after reconnection.  This prevents silent data loss when the handler
+        fails on corrupt or unexpected messages.
+        """
         while self._running:
             messages = self._consumer.poll(timeout_ms=1000)
             if not messages:
                 continue
 
+            batch_ok = True
             for tp, records in messages.items():
                 for message in records:
                     try:
@@ -84,15 +94,23 @@ class QuoteConsumer:
                             event = json.loads(message.value.decode('utf-8'))
                         except (json.JSONDecodeError, UnicodeDecodeError) as e:
                             logger.error(f'Failed to decode message: {e}')
+                            batch_ok = False
                             continue
                         self.message_handler(event)
                     except Exception as e:
                         logger.error(f"Error processing message: {e}", exc_info=True)
+                        batch_ok = False
 
-            try:
-                self._consumer.commit()
-            except KafkaError as e:
-                logger.error(f"Failed to commit offsets: {e}")
+            if batch_ok:
+                try:
+                    self._consumer.commit()
+                except KafkaError as e:
+                    logger.error(f"Failed to commit offsets: {e}")
+            else:
+                logger.warning(
+                    "Skipping offset commit — one or more messages in batch failed. "
+                    "They will be redelivered on next poll or after reconnect."
+                )
 
     def _reconnect(self) -> bool:
         """
@@ -109,7 +127,8 @@ class QuoteConsumer:
                 f"Kafka reconnect attempt {attempt}/{MAX_RECONNECT_RETRIES} "
                 f"in {backoff}s..."
             )
-            time.sleep(backoff)
+            if self._stop_event.wait(timeout=backoff):
+                return False  # shutdown requested
             if not self._running:
                 return False
             # Close stale consumer before reconnecting
@@ -156,6 +175,7 @@ class QuoteConsumer:
     def close(self):
         """Close the Kafka consumer."""
         self._running = False
+        self._stop_event.set()
         if self._consumer:
             try:
                 self._consumer.close()

@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from dotenv import load_dotenv
 
 from .config import Settings
+from .metrics import start_metrics_server
 from .service import AnalyticsService
 
 # Configure logging
@@ -71,6 +72,7 @@ def main():
     load_dotenv()
 
     _start_health_server()
+    start_metrics_server()
 
     logger.info("=" * 60)
     logger.info("Analytics Service")
