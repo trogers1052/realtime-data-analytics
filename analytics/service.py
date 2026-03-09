@@ -15,6 +15,16 @@ from .kafka_consumer import QuoteConsumer
 from .kafka_producer import IndicatorProducer
 from .database import IndicatorRepository
 from .market_data_db import MarketDataRepository
+from .metrics import (
+    INDICATORS_CALCULATED,
+    INDICATOR_CALC_DURATION,
+    KAFKA_PUBLISH,
+    PRICE_BUFFER_SIZE,
+    QUOTES_RECEIVED,
+    QUOTES_REJECTED,
+    REDIS_ERRORS,
+    SYMBOLS_TRACKED,
+)
 from .redis_client import FreshnessClient
 
 logger = logging.getLogger(__name__)
@@ -218,7 +228,10 @@ class AnalyticsService:
             symbol = data.get('symbol')
             if not symbol:
                 logger.warning("Quote event missing symbol")
+                QUOTES_REJECTED.labels(reason="missing_symbol").inc()
                 return
+
+            QUOTES_RECEIVED.labels(symbol=symbol).inc()
 
             # Parse timestamp
             time_str = data.get('time')
@@ -251,12 +264,14 @@ class AnalyticsService:
                     f"(O={price_record['open']}, H={price_record['high']}, "
                     f"L={price_record['low']}, C={price_record['close']})"
                 )
+                QUOTES_REJECTED.labels(reason="invalid_ohlcv").inc()
                 return
             if price_record['high'] < price_record['low']:
                 logger.warning(
                     f"Rejecting quote for {symbol}: high ({price_record['high']}) "
                     f"< low ({price_record['low']})"
                 )
+                QUOTES_REJECTED.labels(reason="invalid_ohlcv").inc()
                 return
 
             # Check if we already have this timestamp (avoid duplicates)
@@ -264,6 +279,7 @@ class AnalyticsService:
                 latest_time = self.price_buffer[symbol][-1]['time']
                 if timestamp <= latest_time:
                     logger.debug(f"Skipping duplicate/old quote for {symbol}: {timestamp} <= {latest_time}")
+                    QUOTES_REJECTED.labels(reason="duplicate_or_stale").inc()
                     return
 
             if symbol not in self.price_buffer:
@@ -271,6 +287,10 @@ class AnalyticsService:
                 self.price_buffer[symbol] = deque(maxlen=self.max_buffer_size)
             self.price_buffer[symbol].append(price_record)
             self._buffer_last_access[symbol] = time.monotonic()
+
+            # Update buffer gauges
+            SYMBOLS_TRACKED.set(len(self.price_buffer))
+            PRICE_BUFFER_SIZE.set(sum(len(buf) for buf in self.price_buffer.values()))
 
             # Calculate indicators if we have enough data
             if len(self.price_buffer[symbol]) >= self.settings.min_bars_for_calculation:
@@ -314,7 +334,8 @@ class AnalyticsService:
             df = pd.DataFrame(self.price_buffer[symbol])
             df = df.sort_values('time')  # Ensure chronological order
 
-            # Calculate indicators
+            # Calculate indicators (timed)
+            calc_start = time.time()
             indicators = calculate_all_indicators(
                 df,
                 rsi_period=self.settings.rsi_period,
@@ -331,22 +352,26 @@ class AnalyticsService:
                 stoch_smooth_k=self.settings.stoch_smooth_k,
                 adx_period=self.settings.adx_period,
             )
+            INDICATOR_CALC_DURATION.observe(time.time() - calc_start)
 
             if not indicators:
                 logger.debug(f"No indicators calculated for {symbol} (insufficient data)")
                 return
+
+            INDICATORS_CALCULATED.labels(symbol=symbol).inc()
 
             # Get latest timestamp
             latest_timestamp = df['time'].iloc[-1]
 
             # Publish to Kafka (include data quality metadata)
             if self.producer:
-                self.producer.publish_indicator(
+                published = self.producer.publish_indicator(
                     symbol=symbol,
                     timestamp=latest_timestamp,
                     indicators=indicators,
                     data_quality=data_quality,
                 )
+                KAFKA_PUBLISH.labels(status="success" if published else "error").inc()
 
             # Publish to Redis for downstream consumers (trading-journal risk metrics)
             if self.freshness_client:

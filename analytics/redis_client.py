@@ -8,6 +8,8 @@ from typing import Dict, Optional
 
 import redis
 
+from .metrics import REDIS_ERRORS
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,6 +113,7 @@ class FreshnessClient:
 
         except redis.RedisError as e:
             logger.error(f"Failed to connect to Redis: {e}")
+            REDIS_ERRORS.inc()
             return False
 
     def close(self):
@@ -136,6 +139,7 @@ class FreshnessClient:
             return None
         except Exception as e:
             logger.warning(f"Failed to get ingestion status: {e}")
+            REDIS_ERRORS.inc()
             return None
 
     def get_symbol_freshness(self, symbol: str) -> Optional[SymbolFreshness]:
@@ -159,6 +163,7 @@ class FreshnessClient:
             return None
         except Exception as e:
             logger.warning(f"Failed to get freshness for {symbol}: {e}")
+            REDIS_ERRORS.inc()
             return None
 
     def get_all_symbol_freshness(self) -> Dict[str, SymbolFreshness]:
@@ -185,6 +190,7 @@ class FreshnessClient:
             return result
         except Exception as e:
             logger.warning(f"Failed to get all freshness data: {e}")
+            REDIS_ERRORS.inc()
             return {}
 
     def is_symbol_ready(self, symbol: str) -> tuple[bool, str]:
@@ -236,6 +242,7 @@ class FreshnessClient:
             return True
         except Exception as e:
             logger.warning(f"Failed to publish indicators for {symbol} to Redis: {e}")
+            REDIS_ERRORS.inc()
             return False
 
     def is_ingestion_healthy(self) -> tuple[bool, str]:
