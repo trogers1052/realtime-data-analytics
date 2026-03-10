@@ -21,4 +21,7 @@ COPY analytics/ ./analytics/
 RUN useradd -m appuser
 USER appuser
 
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"
+
 CMD ["python", "-m", "analytics.main"]
