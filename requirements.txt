@@ -1,26 +1,26 @@
-# Analytics Service Dependencies
+# Analytics Service Dependencies (pinned to production versions)
 
 # Data processing
-pandas>=2.0.0
-numpy>=1.24.0
+pandas==3.0.1
+numpy==2.2.6
 
 # Technical analysis
-pandas-ta>=0.3.14b0
+pandas-ta==0.4.71b0
 
 # Kafka
-kafka-python>=2.0.0
-python-snappy>=0.6.0  # Snappy compression codec for Kafka
+kafka-python==2.3.0
+python-snappy==0.7.3  # Snappy compression codec for Kafka
 
 # Database
-psycopg2-binary>=2.9.0
+psycopg2-binary==2.9.11
 
 # Redis (for data freshness checks)
-redis>=5.0.0
+redis==7.3.0
 
 # Configuration
-python-dotenv>=1.0.0
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
+python-dotenv==1.2.2
+pydantic==2.12.5
+pydantic-settings==2.13.1
 
 # Metrics
 prometheus-client>=0.20.0
