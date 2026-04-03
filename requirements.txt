@@ -2,7 +2,7 @@
 
 # Data processing
 pandas==3.0.1
-numpy==2.2.6
+numpy==2.4.4
 
 # Technical analysis
 pandas-ta==0.4.71b0
