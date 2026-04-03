@@ -1,7 +1,7 @@
 # Analytics Service Dependencies (pinned to production versions)
 
 # Data processing
-pandas==3.0.1
+pandas==3.0.2
 numpy==2.2.6
 
 # Technical analysis
