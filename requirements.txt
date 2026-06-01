@@ -15,7 +15,7 @@ python-snappy==0.7.3  # Snappy compression codec for Kafka
 psycopg2-binary==2.9.11
 
 # Redis (for data freshness checks)
-redis==7.3.0
+redis==7.0.1
 
 # Configuration
 python-dotenv==1.2.2
