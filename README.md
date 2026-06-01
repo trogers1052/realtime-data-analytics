@@ -1,7 +1,7 @@
 # Analytics Service
 
 **Language:** Python
-**Status:** Not Started
+**Status:** Complete — In Production
 **Priority:** Phase 2 (After Market Data Ingestion)
 
 ## Purpose
@@ -225,3 +225,9 @@ docker exec trading-redpanda rpk topic consume stock.indicators \
 - Health check endpoint
 - Multiple timeframe support (5min, 1hour, daily)
 - Performance metrics and monitoring
+
+---
+
+## Built with Claude Code
+
+A large portion of this project — implementation, tests, and documentation — was written in pair-programming sessions with [Claude Code](https://claude.com/claude-code), Anthropic's agentic command-line tool.
