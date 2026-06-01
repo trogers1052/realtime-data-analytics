@@ -48,7 +48,7 @@ KAFKA_OUTPUT_TOPIC=stock.indicators
 DB_HOST=localhost
 DB_PORT=5432
 DB_USER=trader
-DB_PASSWORD=trader5
+DB_PASSWORD=your_db_password
 DB_NAME=trading_platform
 ```
 
@@ -164,7 +164,7 @@ The service can pre-load historical 1-minute bars from the `market_data` databas
 MARKET_DATA_DB_HOST=localhost
 MARKET_DATA_DB_PORT=5432
 MARKET_DATA_DB_USER=trader
-MARKET_DATA_DB_PASSWORD=trader123
+MARKET_DATA_DB_PASSWORD=your_db_password
 MARKET_DATA_DB_NAME=market_data
 
 # Historical data loading
