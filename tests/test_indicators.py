@@ -75,6 +75,9 @@ class TestInvalidVolume(unittest.TestCase):
 
     def test_inf_volume_omitted(self):
         df = _make_df()
+        # Cast to float first: pandas >= 3.0 raises on assigning inf into an
+        # int64 column (LossySetitemError). Real feeds deliver float volume.
+        df["volume"] = df["volume"].astype(float)
         df.loc[df.index[-1], "volume"] = float("inf")
         result = calculate_all_indicators(df)
         self.assertNotIn("volume", result)

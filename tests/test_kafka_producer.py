@@ -69,11 +69,47 @@ class TestIndicatorProducerEventFormat:
         assert topic == "custom.topic"
 
 
+class TestIndicatorProducerConnect:
+    def test_connect_success(self):
+        from kafka.errors import KafkaError  # noqa: F401
+        p = IndicatorProducer(brokers=["localhost:9092"], topic="t")
+        with patch("analytics.kafka_producer.KafkaProducer", return_value=MagicMock()):
+            assert p.connect() is True
+            assert p._producer is not None
+
+    def test_connect_failure_returns_false(self):
+        from kafka.errors import KafkaError
+        p = IndicatorProducer(brokers=["localhost:9092"], topic="t")
+        with patch("analytics.kafka_producer.KafkaProducer", side_effect=KafkaError("down")):
+            assert p.connect() is False
+
+
 class TestIndicatorProducerErrors:
     def test_publish_raises_when_not_connected(self):
         p = IndicatorProducer(brokers=["localhost:9092"], topic="t")
         with pytest.raises(RuntimeError, match="not connected"):
             p.publish_indicator("X", datetime.now(), {})
+
+    def test_publish_returns_false_on_kafka_error(self):
+        from kafka.errors import KafkaError
+        p = IndicatorProducer(brokers=["localhost:9092"], topic="t")
+        producer = MagicMock()
+        producer.send.side_effect = KafkaError("send failed")
+        p._producer = producer
+        assert p.publish_indicator("X", datetime.now(), {"close": 1.0}) is False
+
+    def test_close_flushes_and_closes(self):
+        p = IndicatorProducer(brokers=["localhost:9092"], topic="t")
+        p._producer = MagicMock()
+        p.close()
+        p._producer.flush.assert_called_once()
+        p._producer.close.assert_called_once()
+
+    def test_close_swallows_errors(self):
+        p = IndicatorProducer(brokers=["localhost:9092"], topic="t")
+        p._producer = MagicMock()
+        p._producer.flush.side_effect = Exception("x")
+        p.close()  # no raise
 
     def test_close_noop_when_no_producer(self):
         p = IndicatorProducer(brokers=["localhost:9092"], topic="t")

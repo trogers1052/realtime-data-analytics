@@ -239,11 +239,16 @@ class TestDataLengthEdgeCases(unittest.TestCase):
             self.assertGreater(result["SMA_200"], 0)
 
     def test_sma_only_for_periods_with_enough_data(self):
-        result = calculate_all_indicators(_make_df(n=60), sma_periods=[20, 50, 200])
-        # SMA_20 and SMA_50 can calculate, SMA_200 cannot
+        # calculate_all_indicators short-circuits to {} when there are fewer
+        # bars than the LARGEST requested SMA period (guard in indicators.py).
+        # With enough bars for every requested period, the SMAs are present.
+        result = calculate_all_indicators(_make_df(n=60), sma_periods=[20, 50])
         self.assertIn("SMA_20", result)
         self.assertIn("SMA_50", result)
-        self.assertNotIn("SMA_200", result)
+
+        # Not enough bars for the largest period -> entire result is empty.
+        empty = calculate_all_indicators(_make_df(n=60), sma_periods=[20, 50, 200])
+        self.assertEqual(empty, {})
 
     def test_custom_periods(self):
         result = calculate_all_indicators(
