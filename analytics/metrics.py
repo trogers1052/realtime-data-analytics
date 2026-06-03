@@ -10,10 +10,11 @@ import logging
 import os
 
 from trading_commons.metrics import (
-    HAS_PROMETHEUS,
     Counter,
     Gauge,
     Histogram,
+    NoOpMetric,
+    _HAS_PROMETHEUS,
     start_http_server,
 )
 
@@ -21,14 +22,12 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_PORT = 9091
 
-# Mirror the library's availability flag under this module's historical name.
-_PROMETHEUS_AVAILABLE = HAS_PROMETHEUS
+# Mirror the library's availability flag under this module's historical name
+# (tests monkeypatch ``metrics._PROMETHEUS_AVAILABLE``).
+_PROMETHEUS_AVAILABLE = _HAS_PROMETHEUS
 
-# When prometheus_client is absent the library exposes no-op factories whose
-# instances are the no-op metric type. Re-export that type under the name the
-# tests look for, so the no-op behaviour stays observable here.
-if not HAS_PROMETHEUS:  # pragma: no cover - exercised only without prometheus
-    _NoOpMetric = type(Counter())
+# Re-export the no-op metric type under the name the tests look for.
+_NoOpMetric = NoOpMetric
 
 # ---------------------------------------------------------------------------
 # Metric definitions

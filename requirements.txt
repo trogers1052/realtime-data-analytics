@@ -18,7 +18,7 @@ psycopg2-binary==2.9.11
 redis==7.0.1
 
 # Shared platform library (config, metrics, redisx, daemon)
-trading-py-commons @ git+https://github.com/trogers1052/trading-py-commons.git@v0.1.0
+trading-py-commons @ git+https://github.com/trogers1052/trading-py-commons.git@v0.2.0
 
 # Configuration
 python-dotenv==1.2.2

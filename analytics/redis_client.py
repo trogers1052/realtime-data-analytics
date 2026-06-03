@@ -76,8 +76,9 @@ class FreshnessClient(RedisBase):
     """Client for checking data freshness from Redis.
 
     Built on :class:`trading_commons.redisx.RedisBase` for the connection
-    lifecycle. ``backoff_base=0`` + ``max_retries=1`` preserve the original
-    single-attempt, no-sleep behaviour on transient errors.
+    lifecycle. ``max_retries=0`` keeps the original single-attempt, no-sleep
+    behaviour on transient errors (the freshness queries each catch their own
+    errors and never use ``_with_retry``, so no reconnect path runs).
     """
 
     def __init__(self, host: str, port: int, password: str = "", db: int = 0):
@@ -97,27 +98,13 @@ class FreshnessClient(RedisBase):
             password=password if password else None,
             socket_timeout=5,
             socket_connect_timeout=5,
-            max_retries=1,
-            backoff_base=0,
+            max_retries=0,
             decode_responses=True,
-        )
-
-    def _create_client(self) -> "redis.Redis":
-        """Create the configured client via this module's ``redis`` symbol.
-
-        Overridden so the client is built through ``analytics.redis_client``'s
-        ``redis`` reference (the patch target used in tests) and so
-        ``retry_on_timeout`` matches the original behaviour.
-        """
-        return redis.Redis(
-            host=self.host,
-            port=self.port,
-            password=self.password,
-            db=self.db,
-            decode_responses=self.decode_responses,
-            socket_timeout=self.socket_timeout,
-            socket_connect_timeout=self.socket_connect_timeout,
             retry_on_timeout=True,
+            # Build through this module's ``redis`` symbol (the patch target
+            # used in tests). The base normalises ``password or None`` and
+            # supplies the socket timeouts / retry_on_timeout in the kwargs.
+            client_factory=lambda **kwargs: redis.Redis(**kwargs),
         )
 
     def connect(self) -> bool:
