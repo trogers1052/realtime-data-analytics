@@ -44,6 +44,10 @@ def _stub_missing_modules():
         redis_stub = ModuleType("redis")
         redis_stub.Redis = type("Redis", (), {})
         redis_stub.RedisError = type("RedisError", (Exception,), {})
+        # trading_commons.redisx references these transient-error classes at
+        # import time, so the stub must expose them too.
+        redis_stub.ConnectionError = type("ConnectionError", (ConnectionError,), {})
+        redis_stub.TimeoutError = type("TimeoutError", (TimeoutError,), {})
         sys.modules["redis"] = redis_stub
 
     # NOTE: pandas and pandas_ta are NOT stubbed here.  Modules that need

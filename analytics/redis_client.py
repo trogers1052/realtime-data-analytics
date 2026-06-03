@@ -1,5 +1,10 @@
 """
 Redis client for reading data freshness status.
+
+The connection lifecycle (client creation, reconnect, retry) is provided by
+:class:`trading_commons.redisx.RedisBase`. The freshness-specific query methods
+keep their original semantics: each catches its own errors, increments
+``REDIS_ERRORS`` and returns a safe empty value rather than raising.
 """
 
 import json
@@ -7,6 +12,7 @@ import logging
 from typing import Dict, Optional
 
 import redis
+from trading_commons.redisx import RedisBase
 
 from .metrics import REDIS_ERRORS
 
@@ -66,8 +72,13 @@ class SymbolFreshness:
         }
 
 
-class FreshnessClient:
-    """Client for checking data freshness from Redis."""
+class FreshnessClient(RedisBase):
+    """Client for checking data freshness from Redis.
+
+    Built on :class:`trading_commons.redisx.RedisBase` for the connection
+    lifecycle. ``backoff_base=0`` + ``max_retries=1`` preserve the original
+    single-attempt, no-sleep behaviour on transient errors.
+    """
 
     def __init__(self, host: str, port: int, password: str = "", db: int = 0):
         """
@@ -79,11 +90,35 @@ class FreshnessClient:
             password: Redis password (optional).
             db: Redis database number.
         """
-        self.host = host
-        self.port = port
-        self.password = password
-        self.db = db
-        self._client: Optional[redis.Redis] = None
+        super().__init__(
+            host=host,
+            port=port,
+            db=db,
+            password=password if password else None,
+            socket_timeout=5,
+            socket_connect_timeout=5,
+            max_retries=1,
+            backoff_base=0,
+            decode_responses=True,
+        )
+
+    def _create_client(self) -> "redis.Redis":
+        """Create the configured client via this module's ``redis`` symbol.
+
+        Overridden so the client is built through ``analytics.redis_client``'s
+        ``redis`` reference (the patch target used in tests) and so
+        ``retry_on_timeout`` matches the original behaviour.
+        """
+        return redis.Redis(
+            host=self.host,
+            port=self.port,
+            password=self.password,
+            db=self.db,
+            decode_responses=self.decode_responses,
+            socket_timeout=self.socket_timeout,
+            socket_connect_timeout=self.socket_connect_timeout,
+            retry_on_timeout=True,
+        )
 
     def connect(self) -> bool:
         """
@@ -95,16 +130,7 @@ class FreshnessClient:
         try:
             logger.info(f"Connecting to Redis at {self.host}:{self.port}")
 
-            self._client = redis.Redis(
-                host=self.host,
-                port=self.port,
-                password=self.password if self.password else None,
-                db=self.db,
-                decode_responses=True,
-                socket_timeout=5,
-                socket_connect_timeout=5,
-                retry_on_timeout=True,
-            )
+            self._client = self._create_client()
 
             # Test connection
             self._client.ping()
@@ -114,12 +140,14 @@ class FreshnessClient:
         except redis.RedisError as e:
             logger.error(f"Failed to connect to Redis: {e}")
             REDIS_ERRORS.inc()
+            self._client = None
             return False
 
     def close(self):
         """Close the Redis connection."""
         if self._client:
             self._client.close()
+            self._client = None
             logger.info("Redis connection closed")
 
     def get_ingestion_status(self) -> Optional[IngestionStatus]:

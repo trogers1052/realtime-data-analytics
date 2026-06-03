@@ -1,89 +1,82 @@
-"""Prometheus metrics for analytics-service."""
+"""Prometheus metrics for analytics-service.
+
+The Prometheus shim (real ``prometheus_client`` with a transparent no-op
+fallback) lives in :mod:`trading_commons.metrics`. This module only declares
+the analytics-specific metric objects and the service-local
+``start_metrics_server`` (default port 9091).
+"""
 
 import logging
 import os
+
+from trading_commons.metrics import (
+    HAS_PROMETHEUS,
+    Counter,
+    Gauge,
+    Histogram,
+    start_http_server,
+)
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_PORT = 9091
 
+# Mirror the library's availability flag under this module's historical name.
+_PROMETHEUS_AVAILABLE = HAS_PROMETHEUS
+
+# When prometheus_client is absent the library exposes no-op factories whose
+# instances are the no-op metric type. Re-export that type under the name the
+# tests look for, so the no-op behaviour stays observable here.
+if not HAS_PROMETHEUS:  # pragma: no cover - exercised only without prometheus
+    _NoOpMetric = type(Counter())
+
 # ---------------------------------------------------------------------------
 # Metric definitions
 # ---------------------------------------------------------------------------
-# Guarded behind a try/except so the service can still start if
-# prometheus_client is not installed (metrics will simply be no-ops).
-# ---------------------------------------------------------------------------
 
-try:
-    from prometheus_client import Counter, Gauge, Histogram, start_http_server
+QUOTES_RECEIVED = Counter(
+    "analytics_quotes_received_total",
+    "Quotes consumed from Kafka",
+    ["symbol"],
+)
 
-    QUOTES_RECEIVED = Counter(
-        "analytics_quotes_received_total",
-        "Quotes consumed from Kafka",
-        ["symbol"],
-    )
+QUOTES_REJECTED = Counter(
+    "analytics_quotes_rejected_total",
+    "Invalid quotes rejected (bad OHLCV, stale, etc.)",
+    ["reason"],
+)
 
-    QUOTES_REJECTED = Counter(
-        "analytics_quotes_rejected_total",
-        "Invalid quotes rejected (bad OHLCV, stale, etc.)",
-        ["reason"],
-    )
+INDICATORS_CALCULATED = Counter(
+    "analytics_indicators_calculated_total",
+    "Indicator calculations completed",
+    ["symbol"],
+)
 
-    INDICATORS_CALCULATED = Counter(
-        "analytics_indicators_calculated_total",
-        "Indicator calculations completed",
-        ["symbol"],
-    )
+INDICATOR_CALC_DURATION = Histogram(
+    "analytics_indicator_calculation_duration_seconds",
+    "Time spent calculating indicators",
+)
 
-    INDICATOR_CALC_DURATION = Histogram(
-        "analytics_indicator_calculation_duration_seconds",
-        "Time spent calculating indicators",
-    )
+KAFKA_PUBLISH = Counter(
+    "analytics_kafka_publish_total",
+    "Indicators published to Kafka",
+    ["status"],
+)
 
-    KAFKA_PUBLISH = Counter(
-        "analytics_kafka_publish_total",
-        "Indicators published to Kafka",
-        ["status"],
-    )
+SYMBOLS_TRACKED = Gauge(
+    "analytics_symbols_tracked",
+    "Number of symbols currently in the price buffer",
+)
 
-    SYMBOLS_TRACKED = Gauge(
-        "analytics_symbols_tracked",
-        "Number of symbols currently in the price buffer",
-    )
+PRICE_BUFFER_SIZE = Gauge(
+    "analytics_price_buffer_size",
+    "Total bars across all symbols in the price buffer",
+)
 
-    PRICE_BUFFER_SIZE = Gauge(
-        "analytics_price_buffer_size",
-        "Total bars across all symbols in the price buffer",
-    )
-
-    REDIS_ERRORS = Counter(
-        "analytics_redis_errors_total",
-        "Redis connection or operation failures",
-    )
-
-    _PROMETHEUS_AVAILABLE = True
-
-except ImportError:
-    _PROMETHEUS_AVAILABLE = False
-    start_http_server = None  # type: ignore[assignment]
-
-    # Provide no-op stand-ins so instrumented code doesn't need guards
-    class _NoOpMetric:
-        """Dummy metric that silently discards all operations."""
-        def inc(self, *a, **kw): pass
-        def dec(self, *a, **kw): pass
-        def set(self, *a, **kw): pass
-        def observe(self, *a, **kw): pass
-        def labels(self, **kw): return self
-
-    QUOTES_RECEIVED = _NoOpMetric()  # type: ignore[assignment]
-    QUOTES_REJECTED = _NoOpMetric()  # type: ignore[assignment]
-    INDICATORS_CALCULATED = _NoOpMetric()  # type: ignore[assignment]
-    INDICATOR_CALC_DURATION = _NoOpMetric()  # type: ignore[assignment]
-    KAFKA_PUBLISH = _NoOpMetric()  # type: ignore[assignment]
-    SYMBOLS_TRACKED = _NoOpMetric()  # type: ignore[assignment]
-    PRICE_BUFFER_SIZE = _NoOpMetric()  # type: ignore[assignment]
-    REDIS_ERRORS = _NoOpMetric()  # type: ignore[assignment]
+REDIS_ERRORS = Counter(
+    "analytics_redis_errors_total",
+    "Redis connection or operation failures",
+)
 
 
 def start_metrics_server() -> None:

@@ -3,16 +3,39 @@ Configuration management for Analytics Service.
 """
 
 import json
-from pydantic_settings import BaseSettings
+from typing import ClassVar, List
+
 from pydantic import Field, field_validator
-from typing import List, Union
+from pydantic_settings import SettingsConfigDict
+from trading_commons.config import BaseServiceSettings
 
 
-class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+class Settings(BaseServiceSettings):
+    """Application settings loaded from environment variables.
 
-    # Kafka configuration
-    kafka_brokers: str = Field("localhost:19092", description="Kafka broker addresses (comma-separated)")
+    Subclasses :class:`trading_commons.config.BaseServiceSettings`, inheriting
+    the shared Kafka/Redis/Telegram blocks, Docker-secrets support, the
+    ``redis_url`` property, ``kafka_broker_list`` and the env > YAML > defaults
+    ``from_yaml`` loader.
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    # Field names that may be supplied via Docker secrets (/run/secrets/<name>).
+    SECRET_FIELDS: ClassVar[tuple[str, ...]] = (
+        "db_password",
+        "market_data_db_password",
+        "redis_password",
+        "telegram_bot_token",
+        "telegram_chat_id",
+    )
+
+    # Kafka configuration (kafka_brokers inherited from base)
     kafka_consumer_group: str = Field("analytics-service", description="Kafka consumer group")
     kafka_input_topic: str = Field("stock.quotes.realtime", description="Kafka topic for price events")
     kafka_output_topic: str = Field("stock.indicators", description="Kafka topic for indicator events")
@@ -30,7 +53,7 @@ class Settings(BaseSettings):
     market_data_db_user: str = Field("ingestor", description="Market data PostgreSQL user")
     market_data_db_password: str = Field(..., description="Market data PostgreSQL password (required)")  # No default - must be set via env
     market_data_db_name: str = Field("stock_db", description="Market data PostgreSQL database name")
-    
+
     # Historical data loading
     load_historical_data: bool = Field(True, description="Load historical bars on startup")
     historical_bars_limit: int = Field(500, description="Number of historical bars to load per symbol")
@@ -55,11 +78,9 @@ class Settings(BaseSettings):
     batch_size: int = Field(100, description="Number of events to process before calculating indicators")
     enable_postgres_storage: bool = Field(True, description="Store indicators in PostgreSQL")
 
-    # Redis configuration (for checking data freshness)
-    redis_host: str = Field("localhost", description="Redis host")
-    redis_port: int = Field(6379, description="Redis port")
+    # Redis configuration (host/port/db inherited from base; override password
+    # default to empty string for backwards-compatible behaviour)
     redis_password: str = Field("", description="Redis password (optional)")
-    redis_db: int = Field(0, description="Redis database number")
     check_data_freshness: bool = Field(True, description="Check data freshness before calculating")
 
     @field_validator('sma_periods', 'ema_periods', mode='before')
@@ -82,16 +103,6 @@ class Settings(BaseSettings):
     def sma_periods_list(self) -> List[int]:
         """Get SMA periods as a list of integers."""
         return self.sma_periods
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = False
-
-    @property
-    def kafka_broker_list(self) -> List[str]:
-        """Convert comma-separated brokers string to list."""
-        return [b.strip() for b in self.kafka_brokers.split(",")]
 
     @property
     def database_url(self) -> str:
