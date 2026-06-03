@@ -251,13 +251,50 @@ class TestDataLengthEdgeCases(unittest.TestCase):
         self.assertEqual(empty, {})
 
     def test_custom_periods(self):
+        # Non-default periods must be reflected in the OUTPUT KEY NAMES so the
+        # data is not mislabeled for downstream consumers. A 7-period RSI must
+        # be published as "RSI_7", never as "RSI_14".
         result = calculate_all_indicators(
-            _make_df(n=100),
+            _make_df(n=250, with_trend=True),
             sma_periods=[10, 50, 100],
             ema_periods=[5, 10],
             rsi_period=7,
+            atr_period=10,
+            adx_period=20,
         )
         self.assertIn("close", result)
+
+        # RSI key reflects the configured period, and the default name is absent.
+        self.assertIn("RSI_7", result)
+        self.assertNotIn("RSI_14", result)
+
+        # ATR key reflects the configured period.
+        self.assertIn("ATR_10", result)
+        self.assertNotIn("ATR_14", result)
+
+        # ADX / DMP / DMN keys reflect the configured period.
+        self.assertIn("ADX_20", result)
+        self.assertIn("DMP_20", result)
+        self.assertIn("DMN_20", result)
+        self.assertNotIn("ADX_14", result)
+        self.assertNotIn("DMP_14", result)
+        self.assertNotIn("DMN_14", result)
+
+    def test_default_periods_keep_canonical_key_names(self):
+        # At default config the canonical key names MUST be byte-identical to
+        # what downstream consumers (decision-engine) already expect.
+        result = calculate_all_indicators(_make_df(n=250, with_trend=True))
+        self.assertIn("RSI_14", result)
+        self.assertIn("ATR_14", result)
+        self.assertIn("ADX_14", result)
+        self.assertIn("DMP_14", result)
+        self.assertIn("DMN_14", result)
+        self.assertIn("STOCH_K", result)
+        self.assertIn("STOCH_D", result)
+        # Period-suffixed variants of default keys must NOT appear.
+        self.assertNotIn("RSI_7", result)
+        self.assertNotIn("ATR_10", result)
+        self.assertNotIn("ADX_20", result)
 
 
 # ---------------------------------------------------------------------------

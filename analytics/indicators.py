@@ -199,7 +199,7 @@ def calculate_all_indicators(
         if not rsi.empty and not pd.isna(rsi.iloc[-1]):
             rsi_val = float(rsi.iloc[-1])
             if math.isfinite(rsi_val) and 0.0 <= rsi_val <= 100.0:
-                indicators['RSI_14'] = rsi_val
+                indicators[f'RSI_{rsi_period}'] = rsi_val
             else:
                 logger.warning(f"RSI out of bounds ({rsi_val}) — omitting")
 
@@ -247,7 +247,7 @@ def calculate_all_indicators(
         if not atr.empty and not pd.isna(atr.iloc[-1]):
             atr_val = float(atr.iloc[-1])
             if math.isfinite(atr_val) and atr_val > 0:
-                indicators['ATR_14'] = atr_val
+                indicators[f'ATR_{atr_period}'] = atr_val
             else:
                 logger.warning(f"ATR non-positive ({atr_val}) — omitting")
 
@@ -287,9 +287,9 @@ def calculate_all_indicators(
                 dmn_val = float(adx_data['dmn'].iloc[-1])
                 if (math.isfinite(adx_val) and 0.0 <= adx_val <= 100.0
                         and math.isfinite(dmp_val) and math.isfinite(dmn_val)):
-                    indicators['ADX_14'] = adx_val
-                    indicators['DMP_14'] = dmp_val
-                    indicators['DMN_14'] = dmn_val
+                    indicators[f'ADX_{adx_period}'] = adx_val
+                    indicators[f'DMP_{adx_period}'] = dmp_val
+                    indicators[f'DMN_{adx_period}'] = dmn_val
                 else:
                     logger.warning(
                         f"ADX out of bounds (ADX={adx_val}, DM+={dmp_val}, DM-={dmn_val}) — omitting"
