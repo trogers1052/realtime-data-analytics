@@ -6,8 +6,11 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
 # Install system dependencies for snappy compression
+# git is required at build time: requirements.txt installs trading-py-commons
+# from a git+https URL, and pip shells out to git to do it.
 RUN apt-get update && apt-get install -y \
     libsnappy-dev \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
