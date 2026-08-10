@@ -41,6 +41,30 @@ class TestInitialize:
             assert svc.producer is not None
             assert svc.consumer is not None
 
+    def test_producer_ready_before_historical_load(self):
+        """Regression: the warm-up batch in load_historical_data() publishes
+        indicators, so the producer must already exist when it runs — otherwise
+        calculate_and_publish_indicators() silently drops the deep-history
+        indicators context-service needs (SMA_200 → trend/breadth/temperature)."""
+        svc = AnalyticsService(_settings(load_historical_data=True))
+        with patch("analytics.service.IndicatorProducer") as P, \
+             patch("analytics.service.QuoteConsumer") as C, \
+             patch("analytics.service.MarketDataRepository") as M:
+            P.return_value.connect.return_value = True
+            C.return_value.connect.return_value = True
+            M.return_value.connect.return_value = True
+
+            captured = {}
+
+            def _spy_load():
+                captured["producer_set"] = svc.producer is not None
+
+            svc.load_historical_data = _spy_load
+
+            assert svc.initialize() is True
+            assert captured.get("producer_set") is True, \
+                "producer must be initialized BEFORE load_historical_data()"
+
     def test_producer_connect_failure(self):
         svc = AnalyticsService(_settings())
         with patch("analytics.service.IndicatorProducer") as P, \
