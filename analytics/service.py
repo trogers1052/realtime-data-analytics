@@ -135,17 +135,11 @@ class AnalyticsService:
                 logger.error("Failed to connect to database")
                 return False
 
-        # Initialize market data repository (for loading historical bars)
-        if self.settings.load_historical_data:
-            self.market_data_repo = MarketDataRepository(self.settings.market_data_database_url)
-            if not self.market_data_repo.connect():
-                logger.warning("Failed to connect to market data database, continuing without historical data")
-                self.market_data_repo = None
-            else:
-                # Load historical data for monitored symbols
-                self.load_historical_data()
-
-        # Initialize Kafka producer
+        # Initialize Kafka producer BEFORE loading historical data. Otherwise the
+        # startup batch calculated in load_historical_data() is silently dropped —
+        # calculate_and_publish_indicators() skips publishing while self.producer
+        # is None — so context-service never receives the deep-history indicators
+        # (e.g. SMA_200) that trend/breadth/capital-temperature depend on.
         self.producer = IndicatorProducer(
             brokers=self.settings.kafka_broker_list,
             topic=self.settings.kafka_output_topic,
@@ -153,6 +147,17 @@ class AnalyticsService:
         if not self.producer.connect():
             logger.error("Failed to connect to Kafka producer")
             return False
+
+        # Initialize market data repository (for loading historical bars)
+        if self.settings.load_historical_data:
+            self.market_data_repo = MarketDataRepository(self.settings.market_data_database_url)
+            if not self.market_data_repo.connect():
+                logger.warning("Failed to connect to market data database, continuing without historical data")
+                self.market_data_repo = None
+            else:
+                # Load historical data for monitored symbols. Publishes the warm-up
+                # batch via the producer initialized above.
+                self.load_historical_data()
 
         # Initialize Kafka consumer
         self.consumer = QuoteConsumer(
