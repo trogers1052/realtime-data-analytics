@@ -22,7 +22,7 @@ trading-py-commons @ git+https://github.com/trogers1052/trading-py-commons.git@v
 
 # Configuration
 python-dotenv==1.2.2
-pydantic==2.12.5
+pydantic==2.13.2
 pydantic-settings==2.13.1
 
 # Metrics
